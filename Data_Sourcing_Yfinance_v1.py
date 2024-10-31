@@ -1,5 +1,5 @@
 import pandas as pd
-import yfinance as yf
+
 
 def download_data_yfinance(ticker, start_date, end_date):
 
