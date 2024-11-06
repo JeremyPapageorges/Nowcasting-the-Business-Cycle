@@ -32,7 +32,8 @@ subfolder_path = "Pickled_data"
 
 # ensure the user can determine if the data should be updated or not
 
-data_update = st.text_input("Should the program retrieve the latest available data (True for yes, False for no)?")
+data_update = True
+
 
 def data_storage(file_name,data):
 
@@ -156,6 +157,7 @@ if data_update == True:
     data_storage(file_name, yield_curve_data_averages)
 
 yield_curve_data_averages = data_extraction(file_name)
+yield_curve_data_averages.rename(columns = {'T10Y3M' : '10Y - 3M yield spread'})
 
 #######################################################
 # Credit Spreads
@@ -336,8 +338,165 @@ indicators = pd.concat([year_delta_stock_market, # Stock market YoY change , 421
                         year_delta_housing['PERMIT'], # housing starts
                         ], axis = 1)
 
+
+indicators = indicators.rename(
+    columns = {
+       '^GSPC' : 'YoY S&P 500 % change',
+       'T10Y3M' : '10Y-3M yield spread',
+       'Credit Spread' : 'YoY BAA-AAA spread % change (inverted)',
+       'labour_market_index' : 'YoY labour market index % change',
+       'consumer_spending_index' : 'YoY consumer market index % change',
+       'UMCSENT' : 'YoY UMich Sentiment Survey % change',
+       'INDPRO' : 'YoY Industrial production % change',
+       'CMRMTSPL' : 'YoY real manufacturing & trade industry sales % change',
+       'Manufacturing delta neutral' : 'ISM Manufacturing less neutral reading % above/below',
+       'Non manufacturing delta neutral' : 'ISM Non-manufacturing less neutral reading % above/below',
+       'DCOILWTICO' : 'YoY WTI oil price % change (inverted)',
+       'PERMIT' : 'YoY Housing start permits % change'
+
+    }
+)
 st.write("Latest recession risk signal data:")
 st.write(indicators.tail(24))
 
 
+EMI_base = indicators.median(axis = 1)
+EMI_base.name = 'EMI'
+EMI = EMI_base.rolling(3).mean()
+
+rising_indicators = indicators> 0
+ETI_base = rising_indicators.mean(axis = 1)
+ETI_base.name = 'ETI'
+ETI = ETI_base.rolling(3).mean()
+
+
+probit_data = pd.concat([EMI, ETI], axis = 1).dropna()
+probit_data['recession'] = ((ETI < 0.50) & (EMI<0)).astype(int) # returns 1 if recesssion, returns 0 otherwise
+
+
+# fit the probit model
+X = probit_data['ETI']
+X_2 = probit_data['EMI']
+X_3 = probit_data[['ETI', 'EMI']]
+X = sm.add_constant(X)
+X_2 = sm.add_constant(X_2)
+X_3 = sm.add_constant(X_3)
+y = probit_data['recession']
+
+
+probit_model_1 = sm.Probit(y, X)
+probit_model_2 = sm.Probit(y, X_2)
+probit_model_3 = sm.Probit(y, X_3)
+probit_results = probit_model_3.fit()
+
+# Alt formulations of the probit models
+probit_results_1 = probit_model_1.fit()
+probit_results_2 = probit_model_2.fit()
+
+
+print(probit_results.summary())
+
+
+probit_data['recession_probability'] = probit_results.predict(X_3)
+
+probit_data['recession_probability_alt_1'] = probit_results_1.predict(X)
+probit_data['recession_probability_alt_2'] = probit_results_2.predict(X_2)
+
+fig, axs = plt.subplots(3,1, figsize = (10,12))
+
+# First subplot: Full year-over-year percentage change
+axs[0].plot(EMI, color=kkr_purple, label="Economic Tredn Index", linewidth = 0.7)
+axs[0].axhline(0.0, color = 'red', linestyle = '--', linewidth = 0.7)   
+axs[0].scatter(EMI.index[-1], EMI[-1], color =  'red', label = "Latest EMI reading", marker = 'D')
+axs[0].set_title("Economic Momentum Index (Median Monthly % change for 12 indicators)")
+axs[0].set_ylabel("%")
+axs[0].legend(loc="upper left")  # Add legend here with label
+axs[0].grid(True)
+
+axs[1].plot(ETI, color=kkr_purple, label="Economic Trend Index", linewidth = 0.7)
+axs[1].axhline(0.5, color = 'red', linestyle = '--', linewidth = 0.7)
+axs[1].scatter(ETI.index[-1], ETI[-1], color =  'red', label = "Latest ETI reading", marker = 'D')
+axs[1].set_title("Economic Trend Index (Monthly diffusion index for 12 indicators)")
+axs[1].set_ylabel("%")
+axs[1].legend(loc="upper left")  # Add legend here with label
+axs[1].grid(True)
+
+axs[2].plot(probit_data['recession_probability'], color=kkr_purple, label="Probit recession risk probability", linewidth = 0.5)
+axs[2].set_title("Recession risk probability implpied by the ETI and EMI indicators, based on estimates using a Probit model")
+axs[2].scatter(probit_data['recession_probability'].index[-1], probit_data['recession_probability'][-1], color =  'red', label = "Latest probability reading", marker = 'D')
+axs[2].set_ylabel("Probability %")
+axs[2].legend(loc="upper left")  # Add legend here with label
+axs[2].grid(True)
+
+plt.show()
+#st.pyplot(fig)
+
+display = st.selectbox("Display options", ('Full time series', 'Last Three Months', 'Last three months rolling 3-month average'))
+
+
+# Define colors
+kkr_purple = "#4B0082"  # Replace with the exact color you want
+if display == 'Full time series' : 
+
+    # EMI Plot
+    st.write("### Economic Momentum Index (Median Monthly % change for 12 indicators)")
+    st.line_chart(EMI, x_label = 'Date', y_label = 'EMI (12-month pct change)', color = kkr_purple)  # Simple line chart for EMI
+    st.markdown(f"Latest EMI reading: **{EMI[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+
+    # Add horizontal line (as text for simplicity) and legend
+    st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+
+    # ETI Plot
+    st.write("### Economic Trend Index (Monthly diffusion index for 12 indicators)")
+    st.line_chart(ETI,x_label = 'Date', y_label = 'ETI (Monthly diffusion)', color = kkr_purple)  # Simple line chart for ETI
+    st.markdown(f"Latest ETI reading: **{ETI[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+    st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+
+    # Recession Probability Plot
+    st.write("### Recession Risk Probability implied by ETI and EMI indicators")
+    st.line_chart(probit_data['recession_probability'],x_label = 'Date', y_label = 'Recession risk probability', color = kkr_purple)
+    st.markdown(f"Latest probability reading: **{probit_data['recession_probability'][-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+
+if display == 'Last Three Months' :
+
+    # EMI Plot
+    st.write("### LTM Economic Momentum Index (Median Monthly % change for 12 indicators)")
+    st.line_chart(EMI_base.iloc[-12:], x_label = 'Date', y_label = 'LTM Economic Momentum Index', color = '#FF69B4')  # Simple line chart for EMI
+    st.markdown(f"Latest EMI reading: **{EMI_base[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+
+    # Add horizontal line (as text for simplicity) and legend
+    st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+
+    # ETI Plot
+    st.write("### LTM Economic Trend Index (Monthly diffusion index for 12 indicators)")
+    st.line_chart(ETI_base.iloc[-12:],x_label = 'Date', y_label = "LTM Economic Trend Index", color = kkr_purple)  # Simple line chart for ETI
+    st.markdown(f"Latest ETI reading: **{ETI_base[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+    st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+
+    # Recession Probability Plot
+    st.write("### LTM Recession Risk Probability implied by ETI and EMI indicators")
+    st.line_chart(probit_data['recession_probability'].iloc[-12:],x_label = 'Date', y_label = 'LTM Probit recession risk probability', color = kkr_purple)
+    st.markdown(f"Latest probability reading: **{probit_data['recession_probability'][-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+
+
+if display == 'Last three months rolling 3-month average' :
+
+    # EMI Plot
+    st.write("### LTM 3M avg. Economic Momentum Index (Median Monthly % change for 12 indicators)")
+    st.line_chart(EMI.iloc[-12:], x_label = 'Date', y_label = 'LTM Economic Momentum Index (rolling 3-month average)', color = '#FF69B4')  # Simple line chart for EMI
+    st.markdown(f"Latest EMI reading: **{EMI[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+
+    # Add horizontal line (as text for simplicity) and legend
+    st.markdown("<hr style='border-top: 1px dashed red;'>", ugggnsafe_allow_html=True)
+
+    # ETI Plot
+    st.write("### LTM 3M avg. Economic Trend Index (Monthly diffusion index for 12 indicators)")
+    st.line_chart(ETI.iloc[-12:],x_label = 'Date', y_label = "LTM Economic Trend Index (rolling 3-month average)", color = kkr_purple)  # Simple line chart for ETI
+    st.markdown(f"Latest ETI reading: **{ETI[-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
+    st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+
+    # Recession Probability Plot
+    st.write("### LTM Recession Risk Probability implied by ETI and EMI indicators")
+    st.line_chart(probit_data['recession_probability'].iloc[-12:],x_label = 'Date', y_label = 'LTM Probit recession risk probability', color = kkr_purple)
+    st.markdown(f"Latest probability reading: **{probit_data['recession_probability'][-1]:.2f}%** at {date.today().strftime('%Y-%m-%d')}")
 
