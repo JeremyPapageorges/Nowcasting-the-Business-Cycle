@@ -249,26 +249,19 @@ if data_update == True:
             st.stop()  # Halts Streamlit execution temporarily
         
     consumer_spending_data['UMCSENT'][-1] = umcsent_input
-    st.write('Consumer spending data')
-    st.dataframe(consumer_spending_data)
-
 
     # shift down due to the way the FRED publishes data
     # add an additional row since all time series are lagged and need to be adjusted accordingly
 
     new_row_date = consumer_spending_data.index.max() + pd.offsets.MonthEnd(1)
     consumer_spending_data.loc[new_row_date] = [np.nan] * consumer_spending_data.shape[1]
-
     consumer_spending_data[['PCEC96','RRSFS','UMCSENT', 'W875RX1', 'PCE', 'PCEPI', 'RSXFS']] =  consumer_spending_data[['PCEC96','RRSFS','UMCSENT', 'W875RX1', 'PCE', 'PCEPI', 'RSXFS']].shift(1)
-
     consumer_spending_data['personal_consumption_expenditure'] = consumer_spending_data['PCE'] / consumer_spending_data['PCEPI']
+
     # forward fill the PCE index as to ensure the cosumer spendign index reflects an appropriate mean value
     consumer_spending_data['personal_consumption_expenditure'].fillna(method='ffill', inplace=True)
-
     year_delta_consumer_spending = consumer_spending_data.pct_change(12)
     year_delta_consumer_spending['consumer_spending_index'] = year_delta_consumer_spending[['personal_consumption_expenditure', 'RSXFS', 'RRSFS']].mean(axis = 1)
-
-
 
     data_storage(file_name, year_delta_consumer_spending)
 
@@ -382,15 +375,19 @@ indicators = indicators.rename(
 
     }
 )
+
+
+indicators_ffil = indicators.fillna(method='ffill')
+
+st.write("### Recession risk indicator time series (missing latest reading handled with ffil)")
 st.write("Latest recession risk signal data:")
-st.write(indicators.tail(24))
+st.write(indicators_ffil.tail(24))
 
-
-EMI_base = indicators.median(axis = 1)
+EMI_base = indicators_ffil.median(axis = 1)
 EMI_base.name = 'EMI'
 EMI = EMI_base.rolling(3).mean()
 
-rising_indicators = indicators> 0
+rising_indicators = indicators_ffil> 0
 ETI_base = rising_indicators.mean(axis = 1)
 ETI_base.name = 'ETI'
 ETI = ETI_base.rolling(3).mean()
@@ -489,8 +486,8 @@ st.write("### Last Twelve Months ETI & EMI readings w/ Probit model output")
 
 fig, axs = plt.subplots(3,1, figsize = (10,12))
 
-axs[0].plot(EMI.iloc[-12:], color=kkr_purple, label="LTM Economic Momentum Index (rolling 3-month average)", linewidth = 1.2)
-axs[0].plot(EMI_base.iloc[-12:], color='#FF69B4', label="LTM Economic Momentum Index", linewidth = 0.7)
+axs[0].plot(EMI.iloc[-12:], color=kkr_purple, label="Economic Momentum Index (rolling 3-month average)", linewidth = 1.2)
+axs[0].plot(EMI_base.iloc[-12:], color='#FF69B4', label="Economic Momentum Index", linewidth = 0.7)
 axs[0].axhline(0.0, color = 'red', linestyle = '--', linewidth = 0.7)
 axs[0].scatter(EMI.iloc[-12:].index, EMI.iloc[-12:], color='#590e5b', marker = 'D')
 axs[0].scatter(EMI_base.iloc[-12:].index, EMI_base.iloc[-12:], color='#FF69B4', marker = 'o', s = 10)
@@ -500,8 +497,8 @@ axs[0].set_ylabel("%")
 axs[0].legend(loc="upper left")  # Add legend here with label
 axs[0].grid(True)
 
-axs[1].plot(ETI.iloc[-12:], color=kkr_purple, label="LTM Economic Trend Index (rolling 3-month average)", linewidth = 1.2)
-axs[1].plot(ETI_base.iloc[-12:], color='#FF69B4', label="LTM Economic Trend Index", linewidth = 0.7)
+axs[1].plot(ETI.iloc[-12:], color=kkr_purple, label="Economic Trend Index (rolling 3-month average)", linewidth = 1.2)
+axs[1].plot(ETI_base.iloc[-12:], color='#FF69B4', label="Economic Trend Index", linewidth = 0.7)
 axs[1].axhline(0.5, color = 'red', linestyle = '--', linewidth = 0.7)
 axs[1].scatter(ETI.iloc[-12:].index, ETI.iloc[-12:], color='#590e5b', marker = 'D')
 axs[1].scatter(ETI_base.iloc[-12:].index, ETI_base.iloc[-12:], color='#FF69B4', marker = 'o', s = 10)
@@ -511,7 +508,7 @@ axs[1].set_ylabel("%")
 axs[1].legend(loc="lower left")  # Add legend here with label
 axs[1].grid(True)
 
-axs[2].plot(probit_data['recession_probability'].iloc[-12:], color=kkr_purple, label="LTM Probit recession risk probability", linewidth = 0.5)
+axs[2].plot(probit_data['recession_probability'].iloc[-12:], color=kkr_purple, label="Probit recession risk probability", linewidth = 0.5)
 #axs[2].plot(probit_data['recession_probability_alt_1'].iloc[-12:], color=kkr_purple, label="LTM Probit recession risk probability (ETI only)", linewidth = 0.5)
 #axs[2].plot(probit_data['recession_probability_alt_2'].iloc[-12:], color=kkr_purple, label="LTM Probit recession risk probability(EMI only)", linewidth = 0.5)
 axs[2].set_title("LTM Recession risk probability implpied by the ETI and EMI indicators, based on estimates using a Probit model")
@@ -523,3 +520,46 @@ axs[2].grid(True)
 
 plt.show()
 st.pyplot(fig)
+
+
+# Show Last Twelve Months evolution of the time series
+# Add horizontal line (as text for simplicity) and legend
+st.markdown("<hr style='border-top: 1px dashed red;'>", unsafe_allow_html=True)
+st.write("### Last Three Month average of constituant indicators")
+
+indicators_L3M = indicators.iloc[-3:, :].mean()
+
+# Create the figure and bar chart
+fig = plt.figure(figsize=(16, 6))
+bars = plt.bar(indicators_L3M.index, indicators_L3M, color='#590e5b')
+# Add data labels on top of the bars
+for bar in bars:
+    # Get the height of the bar
+    height = bar.get_height()
+    if height >= 0:
+        # For positive bars, place the label just above the bar
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,  # x-coordinate
+            height + 0.01,  # y-coordinate (top of the bar)
+            f"{height:.2f}",  # Label
+            ha='center',  # Center align
+            va='bottom'   # Just above the bar
+        )
+    else:
+        # For negative bars, place the label just below the bar
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,  # x-coordinate
+            height - 0.01,  # y-coordinate (slightly below the bar)
+            f"{height:.2f}",  # Label
+            ha='center',  # Center align
+            va='top'      # Just below the bar
+        )
+# Formatting the chart
+plt.xticks(rotation=45, ha ='right')  # Rotate category names by 90 degrees
+plt.xlabel("Indicators")
+plt.ylabel("% change")
+plt.title("Last three months average of 14 constituant indicators (not includingn ffil)")
+plt.grid(axis='y', linestyle='--', alpha=0.7)
+st.pyplot(fig)
+
+
