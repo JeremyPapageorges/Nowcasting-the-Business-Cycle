@@ -108,7 +108,7 @@ if data_update == True:
 
     #adjust the dates in the index to reflect eom
     ISM.index = ISM.index + pd.offsets.MonthEnd(1)
-    new_row_date = ISM.index.max() + pd.DateOffset(months=1)
+    new_row_date = ISM.index.max() + pd.offsets.MonthEnd(1)
     ISM.loc[new_row_date] = [np.nan] * ISM.shape[1]
 
     data_storage(file_name, ISM)
@@ -233,16 +233,42 @@ if data_update == True:
     (consumer_spending_data,
     consumer_spending_data_averages) = download_data(consumer_spending, start_date, end_date)
 
-    # shift down due to the way the FRED publishes data
-    # add an additional row sinceall time series are lagged and need to be adjusted accordingly
 
-    new_row_date = consumer_spending_data.index.max() + pd.DateOffset(months=1)
+    # Force user to provide latest UMCSENT data reading
+    umcsent_input = st.number_input("Provide latest UMCSENT available reading:", step = 0.1)
+
+    # Define a flag to control the script execution
+    input_valid = False
+
+    # Check for input validity
+    while not input_valid:
+        if umcsent_input:
+            input_valid = True
+        else:
+            st.warning("Please provide a value to proceed.")
+            st.stop()  # Halts Streamlit execution temporarily
+        
+    consumer_spending_data['UMCSENT'][-1] = umcsent_input
+    st.write('Consumer spending data')
+    st.dataframe(consumer_spending_data)
+
+
+    # shift down due to the way the FRED publishes data
+    # add an additional row since all time series are lagged and need to be adjusted accordingly
+
+    new_row_date = consumer_spending_data.index.max() + pd.offsets.MonthEnd(1)
     consumer_spending_data.loc[new_row_date] = [np.nan] * consumer_spending_data.shape[1]
+
     consumer_spending_data[['PCEC96','RRSFS','UMCSENT', 'W875RX1', 'PCE', 'PCEPI', 'RSXFS']] =  consumer_spending_data[['PCEC96','RRSFS','UMCSENT', 'W875RX1', 'PCE', 'PCEPI', 'RSXFS']].shift(1)
 
     consumer_spending_data['personal_consumption_expenditure'] = consumer_spending_data['PCE'] / consumer_spending_data['PCEPI']
-    year_delta_consumer_spending = consumer_spending_data.pct_change(12).shift(1)
+    # forward fill the PCE index as to ensure the cosumer spendign index reflects an appropriate mean value
+    consumer_spending_data['personal_consumption_expenditure'].fillna(method='ffill', inplace=True)
+
+    year_delta_consumer_spending = consumer_spending_data.pct_change(12)
     year_delta_consumer_spending['consumer_spending_index'] = year_delta_consumer_spending[['personal_consumption_expenditure', 'RSXFS', 'RRSFS']].mean(axis = 1)
+
+
 
     data_storage(file_name, year_delta_consumer_spending)
 
@@ -259,7 +285,7 @@ if data_update == True:
     (business_activity_data,
     business_activity_data_averages) = download_data(business_activity, start_date, end_date)
 
-    new_row_date = business_activity_data.index.max() + pd.DateOffset(months=1)
+    new_row_date = business_activity_data.index.max() + pd.offsets.MonthEnd(1)
     business_activity_data.loc[new_row_date] = [np.nan] * business_activity_data.shape[1]
     business_activity_data = business_activity_data.shift()
 
@@ -290,7 +316,7 @@ year_delta_oil = data_extraction(file_name)
 file_name = "money_supply_data"
 
 if data_update == True:
-
+    
     monetary_base = ['BOGMBASE','CPIAUCSL']
     (monetary_base_data,
     monetary_base_data_averages) = download_data(monetary_base, start_date, end_date)
@@ -312,7 +338,7 @@ if data_update == True:
     housing = ['PERMIT']
     (housing_data,
     housing_data_averages) = download_data(housing, start_date, end_date)
-    new_row_date = housing_data_averages.index.max() + pd.DateOffset(months=1)
+    new_row_date = housing_data_averages.index.max() + pd.offsets.MonthEnd(1)
     housing_data_averages.loc[new_row_date] = [np.nan] * housing_data_averages.shape[1]
     housing_data_averages = housing_data_averages.shift()
 
